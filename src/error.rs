@@ -16,11 +16,8 @@ pub enum MyError {
     #[error("Application crash '{msg}': {cause:#?}")]
     Crash { msg: String, cause: Vec<MyError> },
 
-    #[error("failed to get wlr clipboard: {0}")]
-    WlcrsPaste(#[from] wl_clipboard_rs::paste::Error),
-
-    #[error("failed to set wlr clipboard: {0}")]
-    WlcrsCopy(#[from] wl_clipboard_rs::copy::Error),
+    #[error("failed to access wlr clipboard: {0}")]
+    WlrBackend(#[from] crate::wlr_backend::Error),
 
     #[error("{0}")]
     Io(#[from] std::io::Error),

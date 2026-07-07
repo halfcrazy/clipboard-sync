@@ -1,13 +1,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::{env, io::Read, process::Command};
+use std::{env, process::Command};
 use terminal_clipboard::Clipboard as TerminalClipboard;
-use wl_clipboard_rs::copy::{MimeType as CopyMimeType, Options, Source};
-use wl_clipboard_rs::paste::{
-    get_contents, ClipboardType, Error as PasteError, MimeType as PasteMimeType, Seat,
-};
 
-use crate::error::{Generify, MyResult, Standardize};
+use crate::error::{MyResult, Standardize};
+use crate::wlr_backend::WlrBackend;
 
 pub trait Clipboard: std::fmt::Debug {
     fn display(&self) -> String;
@@ -47,9 +44,27 @@ impl<T: Clipboard> Clipboard for Box<T> {
     }
 }
 
-#[derive(Debug)]
 pub struct WlrClipboard {
     pub display: String,
+    backend: WlrBackend,
+}
+
+impl std::fmt::Debug for WlrClipboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WlrClipboard")
+            .field("display", &self.display)
+            .finish()
+    }
+}
+
+impl WlrClipboard {
+    pub fn new(display: String) -> MyResult<Self> {
+        env::set_var("WAYLAND_DISPLAY", &display);
+        Ok(Self {
+            backend: WlrBackend::new(&display)?,
+            display,
+        })
+    }
 }
 
 impl Clipboard for WlrClipboard {
@@ -58,39 +73,11 @@ impl Clipboard for WlrClipboard {
     }
 
     fn get(&self) -> MyResult<String> {
-        env::set_var("WAYLAND_DISPLAY", self.display.clone());
-        let result = get_contents(
-            ClipboardType::Regular,
-            Seat::Unspecified,
-            PasteMimeType::Text,
-        );
-
-        match result {
-            Ok((mut pipe, _)) => {
-                let mut contents = vec![];
-                pipe.read_to_end(&mut contents)?;
-                Ok(String::from_utf8_lossy(&contents).to_string())
-            }
-
-            Err(PasteError::NoSeats)
-            | Err(PasteError::ClipboardEmpty)
-            | Err(PasteError::NoMimeType) => Ok("".to_string()),
-
-            Err(err) => Err(err)?,
-        }
+        self.backend.get_text_or_empty()
     }
 
     fn set(&self, value: &str) -> MyResult<()> {
-        env::set_var("WAYLAND_DISPLAY", self.display.clone());
-        let opts = Options::new();
-        let result = std::panic::catch_unwind(|| {
-            opts.copy(
-                Source::Bytes(value.to_string().into_bytes().into()),
-                CopyMimeType::Text,
-            )
-        });
-
-        Ok(result.standardize().generify()??)
+        self.backend.set_text_result(value)
     }
 
     fn rank(&self) -> u8 {
