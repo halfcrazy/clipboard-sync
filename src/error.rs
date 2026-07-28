@@ -25,6 +25,9 @@ pub enum MyError {
     #[error("{0}")]
     TerminalClipboard(#[from] StandardizedError<terminal_clipboard::ClipboardError>),
 
+    #[error("X11 clipboard error: {0}")]
+    X11Clipboard(#[from] x11_clipboard::error::Error),
+
     #[error("{0}")]
     Arboard(#[from] arboard::Error),
 

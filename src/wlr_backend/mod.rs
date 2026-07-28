@@ -11,6 +11,7 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::thread;
 use std::{env, mem};
 
 use os_pipe::pipe;
@@ -153,14 +154,18 @@ impl_dispatch_source!(SessionState, |state: &mut SessionState,
     match event {
         Event::Send { mime_type, fd } => {
             if let Some(data) = state.data_sources.get(&mime_type) {
-                let copy_result = (|| {
-                    fcntl_setfl(&fd, OFlags::empty())?;
-                    let mut target = File::from(fd);
-                    io::copy(&mut Cursor::new(&**data), &mut target).map(drop)
-                })();
-                if copy_result.is_err() {
-                    source.destroy();
-                }
+                // Serve from a side thread: a blocking write larger than the
+                // pipe capacity would deadlock the dispatch loop when the
+                // reader only starts draining after this handler returns —
+                // which is exactly what our own get_text() roundtrip does.
+                let data = data.clone();
+                thread::spawn(move || {
+                    let _ = (|| -> io::Result<()> {
+                        fcntl_setfl(&fd, OFlags::empty())?;
+                        let mut target = File::from(fd);
+                        io::copy(&mut Cursor::new(&*data), &mut target).map(drop)
+                    })();
+                });
             }
         }
         Event::Cancelled => source.destroy(),
